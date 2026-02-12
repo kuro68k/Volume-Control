@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "AliExpress M3 Bracket")(type "KiCad")(uri "${KIPRJMOD}/libraries/AliExpress M3 Bracket.pretty")(options "")(descr ""))
+)
