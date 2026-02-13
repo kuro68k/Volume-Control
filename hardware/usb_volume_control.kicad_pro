@@ -60,6 +60,42 @@
       ],
       "drc_exclusions": [
         [
+          "lib_footprint_mismatch|150000000|63290000|35b9fe0b-af70-463e-9d3d-b90db7a1f5f8|00000000-0000-0000-0000-000000000000",
+          ""
+        ],
+        [
+          "silk_edge_clearance|106500000|60000000|a9c346b6-4aa3-4462-b1de-e094abd7ca61|f2882fcd-610f-4bf8-9a36-be10c31d2a9b",
+          ""
+        ],
+        [
+          "silk_edge_clearance|109238095|60000000|a9c346b6-4aa3-4462-b1de-e094abd7ca61|892a1b92-7912-44e1-9dd4-8b641848fb91",
+          ""
+        ],
+        [
+          "silk_edge_clearance|113500000|60000000|a9c346b6-4aa3-4462-b1de-e094abd7ca61|407b4baa-5f9f-4709-9e7d-fea3689f8aca",
+          ""
+        ],
+        [
+          "silk_edge_clearance|186500000|60000000|a9c346b6-4aa3-4462-b1de-e094abd7ca61|a0ef1200-4024-466a-980f-b025820afe59",
+          ""
+        ],
+        [
+          "silk_edge_clearance|189238095|60000000|a9c346b6-4aa3-4462-b1de-e094abd7ca61|1d02a972-275b-4ea7-b447-4bdcf7b6a900",
+          ""
+        ],
+        [
+          "silk_edge_clearance|193500000|60000000|a9c346b6-4aa3-4462-b1de-e094abd7ca61|b0ca755e-cf85-46f7-9ef7-e40a482bd57b",
+          ""
+        ],
+        [
+          "silk_over_copper|111115268|67500000|3037406d-f8af-46ca-a9d2-c37ff0430f69|00000000-0000-0000-0000-000000000000",
+          ""
+        ],
+        [
+          "silk_over_copper|188773484|67461073|16a96f62-458f-4bd9-aac8-f7a5c8ca5c1e|00000000-0000-0000-0000-000000000000",
+          ""
+        ],
+        [
           "starved_thermal|153200000|66680000|06d8d6f1-e365-48dc-91bf-ea6ae173366e|b73fa961-4295-4b96-b505-b30780678399|F.Cu",
           ""
         ],
