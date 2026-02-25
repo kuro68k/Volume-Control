@@ -548,7 +548,7 @@
       "gencad": "",
       "idf": "",
       "netlist": "",
-      "plot": "",
+      "plot": "plot/",
       "pos_files": "",
       "specctra_dsn": "",
       "step": "../usb_volume_control.step",
