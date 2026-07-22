@@ -1,0 +1,42 @@
+ENC1D-B16-L00128L
+
+EM14*0*-*20-L032S
+      
+
+EM14R0D-R20-L064S	6mm slotted
+EM14R0D-M20-L064S	6mm flatted
+
+29
+-7
+62.75
+
+
+EX11-3-8_TOP
+x -82
+y -9
+z 135
+
+Imported position
+29.79		-52.21
+-7.86		-16.86
+-68.65		66.75
+
+
+-(52.21+29.79)
+7.86-16.86
+68.65 + 66.75 mm
+
+
+Kicad PCB imported position
+270°, x axis
+-4.75
+-13.60
+27.75
+
+
+HD 2 part 2
+
+
+CPS-16-MONOA10F0-RIRGBVARF0-S0NCB-SONCWF000-C
+CPS16RIWF_RGB_02
+Switch part number: 3-101-412
