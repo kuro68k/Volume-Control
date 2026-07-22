@@ -236,7 +236,7 @@ ISR(USB0_TRNCOMPL_vect)
 {
 	USB0.FIFOWP = 0;	// clear TCIF
 	USB0.INTFLAGSB = USB_SETUP_bm | USB_TRNCOMPL_bm;
-//USART0.TXDATAL = '/';
+
 	// EP0 (control) OUT/SETUP
 	uint8_t status = usb_du_endpoints[0].out.STATUS;	// Read once to prevent race condition
 	if (status & USB_EPSETUP_bm)

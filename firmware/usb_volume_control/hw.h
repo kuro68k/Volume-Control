@@ -21,8 +21,10 @@
 #define MOSI_PIN_bm		PIN4_bm
 
 #define ROTA_PORT		PORTD
+#define ROTA_VPORT		VPORTD
 #define ROTA_PIN_bm		PIN7_bm
 #define ROTB_PORT		PORTD
+#define ROTB_VPORT		VPORTD
 #define ROTB_PIN_bm		PIN5_bm
 
 
