@@ -1,12 +1,67 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <thread>
+#include <mutex>
+#include <atomic>
+
 #include <Windows.h>
 #include <mmdeviceapi.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <endpointvolume.h>
+#include <shellapi.h>
+
+#include <hidsdi.h>
+#include <setupapi.h>
+#pragma comment(lib, "hid.lib")
+#pragma comment(lib, "setupapi.lib")
 
 #include "PolicyConfig.h"
+
+#pragma comment(linker, "/subsystem:windows /ENTRY:mainCRTStartup")
+
+#define WM_TRAYICON (WM_USER + 1)
+#define ID_TRAY_EXIT 1001
+#define ID_TRAY_ICON 100
+
+
+// Window procedure to handle context menu events from the system tray icon
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_TRAYICON:
+        // Right-click on tray icon
+        if (lParam == WM_RBUTTONUP || lParam == WM_CONTEXTMENU) {
+            POINT pt;
+            GetCursorPos(&pt);
+
+            HMENU hMenu = CreatePopupMenu();
+            AppendMenu(hMenu, MF_STRING, ID_TRAY_EXIT, L"Exit");
+
+            // Required so clicking away from the menu closes it
+            SetForegroundWindow(hwnd);
+
+            TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
+            DestroyMenu(hMenu);
+        }
+        break;
+
+    case WM_COMMAND:
+        // Clicked "Exit" in the context menu
+        if (LOWORD(wParam) == ID_TRAY_EXIT) {
+            DestroyWindow(hwnd);
+        }
+        break;
+
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+
+    default:
+        return DefWindowProc(hwnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
 
 void CycleAudioDevice() {
     HRESULT hr = CoInitialize(NULL);
@@ -90,16 +145,218 @@ void CycleAudioDevice() {
     CoUninitialize();
 }
 
+// =========================================================
+// HID HELPER FUNCTIONS
+// =========================================================
+
+// Replace these with your target device's VID and PID
+constexpr WORD TARGET_VID = 0x9999;
+constexpr WORD TARGET_PID = 0x0283;
+
+// Helper to locate and open a handle to the HID device
+HANDLE OpenHidDevice(WORD vid, WORD pid) {
+    GUID hidGuid;
+    HidD_GetHidGuid(&hidGuid);
+
+    HDEVINFO hDevInfo = SetupDiGetClassDevs(&hidGuid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    if (hDevInfo == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
+
+    SP_DEVICE_INTERFACE_DATA devInterfaceData = { 0 };
+    devInterfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
+
+    HANDLE hDevice = INVALID_HANDLE_VALUE;
+
+    for (DWORD i = 0; SetupDiEnumDeviceInterfaces(hDevInfo, NULL, &hidGuid, i, &devInterfaceData); ++i) {
+        DWORD requiredSize = 0;
+        SetupDiGetDeviceInterfaceDetail(hDevInfo, &devInterfaceData, NULL, 0, &requiredSize, NULL);
+
+        std::vector<BYTE> detailDataBuffer(requiredSize);
+        PSP_DEVICE_INTERFACE_DETAIL_DATA devDetailData = reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(detailDataBuffer.data());
+        devDetailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+
+        if (SetupDiGetDeviceInterfaceDetail(hDevInfo, &devInterfaceData, devDetailData, requiredSize, NULL, NULL)) {
+            // Open handle with write access
+            HANDLE hCandidate = CreateFile(
+                devDetailData->DevicePath,
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                NULL,
+                OPEN_EXISTING,
+                0,
+                NULL
+            );
+
+            if (hCandidate != INVALID_HANDLE_VALUE) {
+                HIDD_ATTRIBUTES attrib = { 0 };
+                attrib.Size = sizeof(HIDD_ATTRIBUTES);
+
+                if (HidD_GetAttributes(hCandidate, &attrib)) {
+                    if (attrib.VendorID == vid && attrib.ProductID == pid) {
+                        hDevice = hCandidate;
+                        break; // Matching device found!
+                    }
+                }
+                CloseHandle(hCandidate);
+            }
+        }
+    }
+
+    SetupDiDestroyDeviceInfoList(hDevInfo);
+    return hDevice;
+}
+
 // ---------------------------------------------------------
 // THE VOLUME LISTENER CLASS
+// ---------------------------------------------------------
+// ---------------------------------------------------------
+// THE VOLUME LISTENER CLASS (WITH THREAD-SAFE AUTO-RECONNECT)
 // ---------------------------------------------------------
 class CVolumeCallback : public IAudioEndpointVolumeCallback
 {
     LONG _cRef;
+    HANDLE _hHidDevice;
+    WORD _vid;
+    WORD _pid;
+    IAudioEndpointVolume* _pVolume;
+
+    std::mutex _hidMutex;             // Protects _hHidDevice during concurrent callbacks
+    std::thread _monitorThread;       // Background thread for USB auto-discovery
+    std::atomic<bool> _running{ true }; // Thread state flag
+
+    void DisconnectHid() {
+        // Call within lock or ensure mutex is held
+        if (_hHidDevice != INVALID_HANDLE_VALUE) {
+            CloseHandle(_hHidDevice);
+            _hHidDevice = INVALID_HANDLE_VALUE;
+            printf("[HID] Connection closed / device disconnected.\n");
+        }
+    }
+
+    bool EnsureConnected() {
+        if (_hHidDevice != INVALID_HANDLE_VALUE) {
+            return true;
+        }
+
+        _hHidDevice = OpenHidDevice(_vid, _pid);
+        if (_hHidDevice != INVALID_HANDLE_VALUE) {
+            printf("[HID] Connected to target device successfully.\n");
+            SendCurrentVolumeReportInternal();
+            return true;
+        }
+
+        return false;
+    }
+
+    // Unlocked internal helper used when mutex is already held
+    void SendCurrentVolumeReportInternal() {
+        if (!_pVolume) return;
+
+        float fMasterVolume = 0.0f;
+        BOOL bMuted = FALSE;
+
+        _pVolume->GetMasterVolumeLevelScalar(&fMasterVolume);
+        _pVolume->GetMute(&bMuted);
+
+        float scaled_volume = fMasterVolume * 5;
+        uint8_t colour = bMuted ? 0b01 : 0b10;
+        BYTE report[8] = { 0 };
+        report[0] = 0x02;                  // Report ID
+        report[1] = scaled_volume > 0 ? colour : 0;
+        report[2] = scaled_volume >= 1 ? colour : 0;
+        report[3] = scaled_volume >= 2 ? colour : 0;
+        report[4] = scaled_volume >= 3 ? colour : 0;
+        report[5] = scaled_volume >= 4 ? colour : 0;
+        report[6] = 0;
+        report[7] = (bMuted && (scaled_volume != 0)) ? 1 : 0;
+
+        BOOL success = HidD_SetOutputReport(_hHidDevice, report, sizeof(report));
+        if (success) {
+            printf("  -> [HID] Sent volume report (%zu bytes)\n", sizeof(report));
+        }
+        else {
+            printf("  -> [HID] Send failed (Error: %lu). Resetting connection...\n", GetLastError());
+            DisconnectHid();
+        }
+    }
+
+    // Background loop to detect physical USB insertion
+    void MonitorLoop() {
+        while (_running) {
+            {
+                std::lock_guard<std::mutex> lock(_hidMutex);
+                if (_hHidDevice == INVALID_HANDLE_VALUE) {
+                    EnsureConnected(); // Attempts reconnect & syncs volume if plugged in
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        }
+    }
 
 public:
-    CVolumeCallback() : _cRef(1) {}
-    ~CVolumeCallback() {}
+    CVolumeCallback(WORD vid, WORD pid, IAudioEndpointVolume* pVolume)
+        : _cRef(1), _hHidDevice(INVALID_HANDLE_VALUE), _vid(vid), _pid(pid), _pVolume(pVolume)
+    {
+        if (_pVolume) {
+            _pVolume->AddRef();
+        }
+
+        // Initial connect attempt
+        {
+            std::lock_guard<std::mutex> lock(_hidMutex);
+            EnsureConnected();
+        }
+
+        // Start background auto-discovery thread
+        _monitorThread = std::thread(&CVolumeCallback::MonitorLoop, this);
+    }
+
+    ~CVolumeCallback() {
+        // Stop background thread cleanly before teardown
+        _running = false;
+        if (_monitorThread.joinable()) {
+            _monitorThread.join();
+        }
+
+        std::lock_guard<std::mutex> lock(_hidMutex);
+        DisconnectHid();
+
+        if (_pVolume) {
+            _pVolume->Release();
+            _pVolume = NULL;
+        }
+    }
+
+    // Public method for sending explicit volume data (e.g. from OnNotify)
+    void SendVolumeReport(float fMasterVolume, BOOL bMuted) {
+        std::lock_guard<std::mutex> lock(_hidMutex);
+
+        if (!EnsureConnected()) return;
+
+        float scaled_volume = fMasterVolume * 5;
+        uint8_t colour = bMuted ? 0b01 : 0b10;
+        BYTE report[8] = { 0 };
+        report[0] = 0x02;                  // Report ID
+        report[1] = scaled_volume > 0 ? colour : 0;
+        report[2] = scaled_volume >= 1 ? colour : 0;
+        report[3] = scaled_volume >= 2 ? colour : 0;
+        report[4] = scaled_volume >= 3 ? colour : 0;
+        report[5] = scaled_volume >= 4 ? colour : 0;
+        report[6] = 0;
+        report[7] = (bMuted && (scaled_volume != 0)) ? 1 : 0;
+
+        BOOL success = HidD_SetOutputReport(_hHidDevice, report, sizeof(report));
+        if (success) {
+            printf("  -> [HID] Sent volume report (%zu bytes)\n", sizeof(report));
+        }
+        else {
+            printf("  -> [HID] Send failed (Error: %lu). Retrying connection...\n", GetLastError());
+            DisconnectHid();
+            // Retry once immediately with a fresh handle if reconnected
+            if (EnsureConnected()) {
+                HidD_SetOutputReport(_hHidDevice, report, sizeof(report));
+            }
+        }
+    }
 
     // IUnknown Implementation
     ULONG STDMETHODCALLTYPE AddRef() { return InterlockedIncrement(&_cRef); }
@@ -134,10 +391,8 @@ public:
         printf("  -> Muted:    %s\n", pNotify->bMuted ? "YES" : "NO");
         printf("  -> Volume:   %.0f%%\n", pNotify->fMasterVolume * 100.0f);
 
-        // Channels (Left/Right)
-        for (UINT i = 0; i < pNotify->nChannels; i++) {
-            printf("  -> Channel %u: %.2f\n", i, pNotify->afChannelVolumes[i]);
-        }
+        SendVolumeReport(pNotify->fMasterVolume, pNotify->bMuted);
+
         return S_OK;
     }
 };
@@ -214,64 +469,78 @@ int main()
 {
     CoInitialize(NULL);
 
+    // 1. Register a hidden window class to receive tray messages
+    HINSTANCE hInstance = GetModuleHandle(NULL);
+    WNDCLASS wc = { 0 };
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = L"VolumeControlTrayClass";
+    RegisterClass(&wc);
+
+    HWND hWnd = CreateWindowEx(
+        0, wc.lpszClassName, L"Volume Control HID Sync",
+        0, 0, 0, 0, 0, HWND_MESSAGE, NULL, hInstance, NULL
+    );
+
+    // 2. Add System Tray Icon
+    NOTIFYICONDATA nid = { sizeof(nid) };
+    nid.hWnd = hWnd;
+    nid.uID = ID_TRAY_ICON;
+    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    nid.uCallbackMessage = WM_TRAYICON;
+    nid.hIcon = LoadIcon(NULL, IDI_APPLICATION); // Uses standard Windows app icon
+    wcscpy_s(nid.szTip, L"Volume Control HID Sync");
+    Shell_NotifyIcon(NIM_ADD, &nid);
+
+    // 3. Initialize Audio & HID Stack
     IMMDeviceEnumerator* pEnumerator = NULL;
     IMMDevice* pDevice = NULL;
     IAudioEndpointVolume* pVolume = NULL;
-    CVolumeCallback* pVolumeCallback = new CVolumeCallback();
 
-    // 1. Get Enumerator
     HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&pEnumerator);
 
-    // 2. Get Default Device (Speakers)
-    pEnumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, &pDevice);
-
-    // 3. Activate the Volume Interface
-    //    Note: IID_IAudioEndpointVolume is defined in endpointvolume.h
-    pDevice->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, NULL, (void**)&pVolume);
-
-    // 4. Register the callback
-    pVolume->RegisterControlChangeNotify(pVolumeCallback);
-
-    if (SUCCEEDED(hr))
-    {
-        // 1. Create our listener
-        CMMNotificationClient* pClient = new CMMNotificationClient();
-
-        // 2. Register it
-        hr = pEnumerator->RegisterEndpointNotificationCallback(pClient);
-
-        if (SUCCEEDED(hr))
-        {
-            printf("Listening for audio device changes... (Press Enter to quit)\n");
-            getchar(); // Block here so the app stays alive to receive callbacks
-
-            // 3. Unregister before quitting
-            pEnumerator->UnregisterEndpointNotificationCallback(pClient);
-        }
-
-        // 5. Cleanup
-        if (pVolume) {
-            pVolume->UnregisterControlChangeNotify(pVolumeCallback);
-            pVolume->Release();
-        }
-        if (pDevice) pDevice->Release();
-        if (pClient) pClient->Release();
-        if (pEnumerator) pEnumerator->Release();
-        pVolumeCallback->Release(); // Release our local ref
+    if (SUCCEEDED(hr)) {
+        pEnumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, &pDevice);
     }
 
+    if (pDevice) {
+        pDevice->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, NULL, (void**)&pVolume);
+    }
+
+    CVolumeCallback* pVolumeCallback = new CVolumeCallback(TARGET_VID, TARGET_PID, pVolume);
+
+    if (pVolume) {
+        pVolume->RegisterControlChangeNotify(pVolumeCallback);
+    }
+
+    CMMNotificationClient* pClient = new CMMNotificationClient();
+    if (SUCCEEDED(hr)) {
+        pEnumerator->RegisterEndpointNotificationCallback(pClient);
+    }
+
+    // 4. Win32 Message Loop (Replaces getchar())
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+
+    // 5. Cleanup Tray Icon & COM Interfaces
+    Shell_NotifyIcon(NIM_DELETE, &nid);
+
+    if (pEnumerator && pClient) {
+        pEnumerator->UnregisterEndpointNotificationCallback(pClient);
+    }
+
+    if (pVolume) {
+        pVolume->UnregisterControlChangeNotify(pVolumeCallback);
+        pVolume->Release();
+    }
+    if (pDevice) pDevice->Release();
+    if (pClient) pClient->Release();
+    if (pEnumerator) pEnumerator->Release();
+    if (pVolumeCallback) pVolumeCallback->Release();
+
     CoUninitialize();
-
-    //CycleAudioDevice();
+    return 0;
 }
-
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
-
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file

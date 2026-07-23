@@ -12,7 +12,7 @@
 
 
 extern uint8_t hid_report[USB_HID_REPORT_SIZE];
-extern uint8_t out_hid_report[USB_HID_REPORT_SIZE];
+extern uint8_t out_hid_report[USB_HID_OUT_REPORT_SIZE];
 extern volatile bool out_hid_report_received_SIG;
 
 extern void hid_send_report(void);

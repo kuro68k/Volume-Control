@@ -1,4 +1,4 @@
-/* usb_xmega.c
+/* usb_requests.c
  *
  * Copyright 2011-2014 Nonolith Labs
  * Copyright 2014 Technical Machine
@@ -204,35 +204,7 @@ void usb_handle_class_setup_requests(void)
 
 		// OUT requests
 		case USB_HIDREQ_SET_REPORT:
-		{
-			switch(usb_setup.wValue >> 8)
-			{
-				case USB_HID_REPORT_TYPE_INPUT:
-					if (hid_cb_set_report_input(ep0_buf_out, usb_setup.wLength, usb_setup.wValue & 0xFF))
-					{
-						usb_ep0_in(0);
-						return usb_ep0_clear_out_setup();
-					}
-					return usb_ep0_stall_in();
-				case USB_HID_REPORT_TYPE_OUTPUT:
-					if (hid_cb_set_report_output(ep0_buf_out, usb_setup.wLength, usb_setup.wValue & 0xFF))
-					{
-						usb_ep0_in(0);
-						hid_get_report_received_callback();
-						return usb_ep0_clear_out_setup();
-					}
-					return usb_ep0_stall_in();
-				case USB_HID_REPORT_TYPE_FEATURE:
-					if (hid_cb_set_report_feature(ep0_buf_out, usb_setup.wLength, usb_setup.wValue & 0xFF))
-					{
-						usb_ep0_in(0);
-						return usb_ep0_clear_out_setup();
-					}
-					return usb_ep0_stall_in();
-				default:
-					return usb_ep0_stall_in();
-			}
-		}
+			return usb_ep0_clear_out_setup();
 
 		case USB_HIDREQ_SET_IDLE:
 			usb_ep0_in(0);
@@ -309,6 +281,43 @@ void usb_handle_control_setup(void)
 */
 void usb_handle_control_out(void)
 {
+	// Check if the setup packet that initiated this OUT transfer was a HID CLASS request
+	if ((usb_setup.bmRequestType & USB_REQTYPE_TYPE_MASK) == USB_REQTYPE_CLASS)
+	{
+		if (usb_setup.bRequest == USB_HIDREQ_SET_REPORT)
+		{
+			uint8_t report_type = usb_setup.wValue >> 8;
+			uint8_t report_id   = usb_setup.wValue & 0xFF;
+			bool success = false;
+
+			switch (report_type)
+			{
+				case USB_HID_REPORT_TYPE_OUTPUT:
+					success = hid_cb_set_report_output(ep0_buf_in, usb_setup.wLength, report_id);
+					if (success)
+						hid_get_report_received_callback();
+					break;
+
+				case USB_HID_REPORT_TYPE_INPUT:
+					success = hid_cb_set_report_input(ep0_buf_in, usb_setup.wLength, report_id);
+					break;
+
+				case USB_HID_REPORT_TYPE_FEATURE:
+					success = hid_cb_set_report_feature(ep0_buf_in, usb_setup.wLength, report_id);
+					break;
+			}
+
+			if (success)
+			{
+				// Send Zero-Length Packet (ZLP) IN to acknowledge STATUS phase
+				usb_ep0_in(0);
+			}
+			else
+			{
+				usb_ep0_stall_in();
+			}
+		}
+	}
 }
 
 /**************************************************************************************************

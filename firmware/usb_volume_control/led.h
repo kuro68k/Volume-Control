@@ -20,6 +20,7 @@
 #define LED_BOTH_bm		(0b11)
 
 extern void LED_init(void);
+extern void LED_set(uint8_t vol0, uint8_t vol1, uint8_t vol2, uint8_t vol3, uint8_t vol4, uint8_t rgb);
 extern void LED_bar(uint8_t num_leds, bool red, bool dot);
 
 #endif /* LED_H_ */

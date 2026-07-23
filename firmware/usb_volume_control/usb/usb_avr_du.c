@@ -51,7 +51,7 @@ void usb_reset()
 	usb_wait_until_rmw_done();
 	USB0.STATUS[0].OUTCLR = ~USB_BUSNAK_bm;
 	usb_wait_until_rmw_done();
-	usb_du_endpoints[0].out.DATAPTR = (unsigned) ep0_buf_out;
+	usb_du_endpoints[0].out.DATAPTR = (unsigned)ep0_buf_out;
 	usb_du_endpoints[0].out.CTRL = USB_TYPE_CONTROL_gc |
 								   USB_EP_size_to_gc(USB_EP0_MAX_PACKET_SIZE);
 	usb_wait_until_rmw_done();
@@ -59,7 +59,7 @@ void usb_reset()
 	usb_wait_until_rmw_done();
 	USB0.STATUS[0].INSET = USB_TOGGLE_bm;
 	usb_wait_until_rmw_done();
-	usb_du_endpoints[0].in.DATAPTR = (unsigned) ep0_buf_in;
+	usb_du_endpoints[0].in.DATAPTR = (unsigned)ep0_buf_in;
 	usb_du_endpoints[0].in.CTRL = USB_TYPE_CONTROL_gc | USB_MULTIPKT_bm | USB_AZLP_bm |
 								  USB_EP_size_to_gc(USB_EP0_MAX_PACKET_SIZE);
 
@@ -244,15 +244,15 @@ ISR(USB0_TRNCOMPL_vect)
 		memcpy(&usb_setup, ep0_buf_out, sizeof(usb_setup));
 		usb_wait_until_rmw_done();
 		USB0.STATUS[0].OUTCLR = USB_TRNCOMPL_bm | USB_BUSNAK_bm | USB_EPSETUP_bm;
-		if (((usb_setup.bmRequestType & 0x80) != 0) ||	// IN host requesting response
-			(usb_setup.wLength == 0))					// OUT length 0 (status stage?)
-			usb_handle_control_setup();
-		// else deferred until data stage complete
+		usb_handle_control_setup();
 	}
-	//else if (status & USB_TRNCOMPL_bm)	// invalid?
-	//{
-	//	usb_handle_control_setup();
-	//}
+	else if (status & USB_TRNCOMPL_bm)
+	{
+		// DATA phase complete on EP0 OUT: process payload data
+		usb_handle_control_out();
+		usb_wait_until_rmw_done();
+		USB0.STATUS[0].OUTCLR = USB_TRNCOMPL_bm | USB_BUSNAK_bm;
+	}
 
 	// EP0 (control) IN
 	if (usb_du_endpoints[0].in.STATUS & USB_TRNCOMPL_bm)

@@ -7,6 +7,7 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+#include <stdbool.h>
 #include "avr_du.h"
 #include "hw.h"
 #include "led.h"
@@ -41,89 +42,46 @@ int main(void)
 
 	HW_init();
 	LED_init();
-/*
-	for(;;)
-	{
-		uint8_t enc =	(ROTA_VPORT.IN & ROTA_PIN_bm ? (1<<0) : 0) |
-						(ROTB_VPORT.IN & ROTB_PIN_bm ? (1<<1) : 0);
-		LED_vol[0] = enc & 0b10 ? LED_RED_bm : LED_OFF_bm;
-		LED_vol[1] = enc & 0b01 ? LED_RED_bm : LED_OFF_bm;
-		led_set_all();
-	}
-*/
 	ENC_init();
 	usb_init();
 	sei();
-	//usb_detach();
-	//_delay_ms(500);
 	usb_attach();
-	//hid_get_report();
+	hid_get_report();
 	
+	bool last_btn1 = false;
+	bool last_btn2 = false;
+	bool is_muted = false;
 	for(;;)
 	{
-		if (ENC_counter_AT != 0)
+		bool btn1 = BTN1_PORT.IN & BTN1_PIN_bm;
+		bool btn2 = BTN2_PORT.IN & BTN2_PIN_bm;
+		if ((ENC_counter_AT != 0) || (btn1 != last_btn1) || (btn2 != last_btn2))
 		{
 			hid_report[0] = 1;
 			cli();
 			hid_report[1] = ENC_counter_AT;
 			ENC_counter_AT = 0;
 			sei();
-			hid_send_report();
-		}
-	}
-	
-	int8_t pos = 3;
-	LED_bar(pos, false, true);
-	for(;;)
-	{
-		_delay_ms(100);
-		if (ENC_counter_AT != 0)
-		{
-			cli();
-			//int8_t counter = ENC_counter_AT;
-			pos += ENC_counter_AT;
-			ENC_counter_AT = 0;
-			sei();
 			
-			//pos += counter;
-			while (pos < 1)
-				pos += 5;
-			while (pos > 5)
-				pos -= 5;
-			LED_bar(pos, false, true);
+			if ((btn1 != last_btn1) || is_muted)
+				hid_report[1] = 0;	// no volume change when encoder button pressed
+			
+			hid_report[2] = btn1 ? 0 : 1 << 0;
+			hid_report[2] |= btn2 ? 0 : 1 << 1;
+			hid_send_report();
+			last_btn1 = btn1;
+			last_btn2 = btn2;
+			
+			if ((btn1 != last_btn1) || (btn2 != last_btn2))
+				_delay_ms(50);		// debounce
 		}
-	}
-
-	bool dot = false;
-	for(;;)
-	{
-		for (uint8_t i = 0; i < 6; i++)
+		
+		if (out_hid_report_received_SIG)
 		{
-			LED_bar(i, false, dot);
-			_delay_ms(500);
+			LED_set(out_hid_report[1], out_hid_report[2], out_hid_report[3], out_hid_report[4], out_hid_report[5], out_hid_report[6]);
+			is_muted = out_hid_report[7];
+			hid_get_report();
 		}
-		for (uint8_t i = 0; i < 6; i++)
-		{
-			LED_bar(i, true, dot);
-			_delay_ms(500);
-		}
-		dot = !dot;
-	}
-
-	for(;;)
-	{
-		for (uint8_t i = 0; i < 5; i++)
-			LED_vol[i] = 1 << 0;
-		led_set_all();
-		_delay_ms(1000);
-		for (uint8_t i = 0; i < 5; i++)
-			LED_vol[i] = 1 << 1;
-		led_set_all();
-		_delay_ms(1000);
-		for (uint8_t i = 0; i < 5; i++)
-			LED_vol[i] = 0;
-		led_set_all();
-		//_delay_ms(1000);
 	}
 }
 

@@ -47,6 +47,21 @@ void led_set_all(void)
 }
 
 /******************************************************************************
+* Set individual LEDs
+*/
+void LED_set(uint8_t vol0, uint8_t vol1, uint8_t vol2, uint8_t vol3, uint8_t vol4, uint8_t rgb)
+{
+	LED_vol[0] = vol0;
+	LED_vol[1] = vol1;
+	LED_vol[2] = vol2;
+	LED_vol[3] = vol3;
+	LED_vol[4] = vol4;
+	LED_rgb = rgb;
+	led_set_all();
+}
+
+
+/******************************************************************************
 * Set bar graph
 */
 void LED_bar(uint8_t num_leds, bool red, bool dot)

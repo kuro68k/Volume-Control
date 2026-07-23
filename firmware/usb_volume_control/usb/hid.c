@@ -10,7 +10,7 @@
 #include "usb_config.h"
 
 uint8_t hid_report[USB_HID_REPORT_SIZE] __attribute__((__aligned__(2)));
-uint8_t out_hid_report[USB_HID_REPORT_SIZE] __attribute__((__aligned__(2)));
+uint8_t out_hid_report[USB_HID_OUT_REPORT_SIZE] __attribute__((__aligned__(2)));
 volatile bool out_hid_report_received_SIG = 0;
 
 /* Send HID reports. Blocks until the endpoint is ready.
@@ -26,5 +26,5 @@ void hid_send_report(void)
 void hid_get_report(void)
 {
 	out_hid_report_received_SIG = 0;
-	usb_ep_start_out(0x01, out_hid_report, USB_HID_REPORT_SIZE);
+	usb_ep_start_out(0x01, out_hid_report, USB_HID_OUT_REPORT_SIZE);
 }
