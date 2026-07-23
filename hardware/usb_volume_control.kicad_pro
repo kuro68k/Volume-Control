@@ -731,7 +731,7 @@
       {
         "filename": "usb_volume_control.kicad_sch",
         "name": "usb_volume_control",
-        "uuid": "00000000-0000-0000-0000-000000000000"
+        "uuid": "1bd8c8bc-d375-4398-8d03-afa8e0ddcfa6"
       }
     ],
     "used_designators": "",
@@ -740,7 +740,7 @@
   "sheets": [
     [
       "1bd8c8bc-d375-4398-8d03-afa8e0ddcfa6",
-      "Root"
+      "usb_volume_control"
     ]
   ],
   "text_variables": {},
