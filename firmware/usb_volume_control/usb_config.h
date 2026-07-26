@@ -30,9 +30,6 @@
 #define USB_VERSION_MINOR	0
 
 
-// Maximum power draw in milliamps
-#define USB_POWER_MA		100
-
 // USB strings
 #define USB_STRING_MANUFACTURER		"Keio"
 #define USB_STRING_PRODUCT			"Volume Control"
@@ -40,8 +37,16 @@
 
 // Generate a USB serial number from the MCU's unique identifiers. Can be
 // disabled to save flash memory.
-//#define	USB_SERIAL_NUMBER
+#define	USB_SERIAL_NUMBER
 
+
+// Power supply scheme
+#define USB_IS_BUS_POWERED
+#define USB_MAX_BUS_POWER_MA	100
+
+
+// Remote wake-up supported
+#define USB_REMOTE_WAKEUP
 
 /****************************************************************************************
 * Use Microsoft WCID descriptors
@@ -73,7 +78,7 @@ static inline void dfu_cb_enter_dfu_mode(void)
 #define USB_HID
 #define USB_HID_REPORT_SIZE		3
 #define USB_HID_OUT_REPORT_SIZE	8
-#define USB_HID_POLL_RATE_MS	16		// HID polling rate in milliseconds
+#define USB_HID_POLL_RATE_MS	4		// HID polling rate in milliseconds
 
 
 // HID report descriptor

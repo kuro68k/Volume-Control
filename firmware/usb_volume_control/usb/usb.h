@@ -20,11 +20,16 @@
 #include "usb_standard.h"
 #include "usb_config.h"
 
+// usb_requests.c
 extern USB_SetupPacket_t usb_setup;
 extern uint8_t ep0_buf_in[USB_EP0_BUFFER_SIZE];
 extern uint8_t ep0_buf_out[USB_EP0_BUFFER_SIZE];
 extern volatile uint8_t USB_DeviceState;
 extern volatile uint8_t USB_Device_ConfigurationNumber;
+extern volatile bool usb_wakeup_enabled_by_host;
+
+// usb_avr_du.c
+extern volatile bool usb_suspended_AT;
 
 typedef size_t usb_size;
 typedef uint8_t usb_ep;
@@ -44,6 +49,9 @@ void usb_attach(void);
 
 /// Disconnect from the host
 void usb_detach(void);
+
+// Wake the host (if the host enabled wakeup)
+void usb_wakeup(void);
 
 /// Called internally on USB reset
 void usb_reset(void);

@@ -1,9 +1,5 @@
 /* usb_avr_du.c
  *
- * Copyright 2011-2014 Nonolith Labs
- * Copyright 2014 Technical Machine
- * Copyright 2017-2018 Paul Qureshi
- *
  * Low level USB driver for AVR DU series.
  */
 
@@ -15,6 +11,7 @@
 #include "usb_avr_du_internal.h"
 #include "avr_du.h"
 
+volatile bool usb_suspended_AT = false;
 
 #define _USB_EP(epaddr) \
 	USB_EP_pair_t* pair = &usb_du_endpoints[(epaddr & 0x3F)]; \
@@ -225,6 +222,12 @@ ISR(USB0_BUSEVENT_vect)
 		USB0.INTFLAGSA = USB_RESET_bm;
 		usb_reset();
 	}
+
+	// suspend/resume
+	if (USB0.INTFLAGSA & USB_SUSPEND_bm)
+		usb_suspended_AT = 1;
+	if (USB0.INTFLAGSA & USB_RESUME_bm)
+		usb_suspended_AT = 0;
 
 	USB0.INTFLAGSA = USB_SUSPEND_bm | USB_RESUME_bm | USB_SOF_bm;
 }

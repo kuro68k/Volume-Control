@@ -94,8 +94,21 @@ const __flash ConfigDesc_t configuration_descriptor = {
 #endif
 		.bConfigurationValue = 1,
 		.iConfiguration = 0,
+#ifdef USB_IS_BUS_POWERED
+	#ifdef USB_REMOTE_WAKEUP
+		.bmAttributes = USB_CONFIG_ATTR_BUSPOWERED | USB_CONFIG_ATTR_REMOTEWAKEUP,
+	#else
 		.bmAttributes = USB_CONFIG_ATTR_BUSPOWERED,
-		.bMaxPower = USB_CONFIG_POWER_MA(USB_POWER_MA)
+	#endif
+		.bMaxPower = USB_CONFIG_POWER_MA(USB_MAX_BUS_POWER_MA),
+#else
+	#ifdef USB_REMOTE_WAKEUP
+		.bmAttributes = USB_CONFIG_ATTR_BUSPOWERED | USB_CONFIG_ATTR_SELFPOWERED  | USB_CONFIG_ATTR_REMOTEWAKEUP,
+	#else
+		.bmAttributes = USB_CONFIG_ATTR_BUSPOWERED | USB_CONFIG_ATTR_SELFPOWERED,
+	#endif
+		.bMaxPower = USB_CONFIG_POWER_MA(USB_MAX_BUS_POWER_MA),
+#endif
 	},
 #ifdef USB_HID
 	.Interface0 = {

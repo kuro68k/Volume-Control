@@ -21,7 +21,7 @@ __attribute__((__aligned__(2))) USB_SetupPacket_t usb_setup;
 __attribute__((__aligned__(2))) uint8_t ep0_buf_in[USB_EP0_BUFFER_SIZE];
 __attribute__((__aligned__(2))) uint8_t ep0_buf_out[USB_EP0_BUFFER_SIZE];
 __attribute__((__aligned__(2))) volatile uint8_t usb_configuration;
-
+volatile bool usb_wakeup_enabled_by_host = false;
 
 extern uint16_t usb_handle_descriptor_request(uint8_t type, uint8_t index);
 extern void handle_msft_compatible(void);
@@ -45,9 +45,30 @@ void usb_handle_standard_setup_requests(void)
 			return usb_ep0_out();
 
 		case USB_REQ_ClearFeature:
+			switch (usb_setup.wValue)
+			{
+				case USB_FEATURE_DeviceRemoteWakeup:
+					usb_wakeup_enabled_by_host = false;
+					usb_ep0_in(0);
+					break;
+				default:
+					usb_ep0_stall_in();
+					//usb_ep0_in(0);
+					break;
+			}
+			return usb_ep0_out();
+
 		case USB_REQ_SetFeature:
-			// not implemented
-			usb_ep0_in(0);
+			switch (usb_setup.wValue)
+			{
+				case USB_FEATURE_DeviceRemoteWakeup:
+					usb_wakeup_enabled_by_host = true;
+					usb_ep0_in(0);
+					break;
+				default:
+					usb_ep0_stall_in();
+					break;
+			}
 			return usb_ep0_out();
 
 		case USB_REQ_SetAddress:

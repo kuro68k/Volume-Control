@@ -6,6 +6,7 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/sleep.h>
 #include <util/delay.h>
 #include <stdbool.h>
 #include "avr_du.h"
@@ -73,7 +74,10 @@ int main(void)
 			last_btn2 = btn2;
 			
 			if ((btn1 != last_btn1) || (btn2 != last_btn2))
+			{
 				_delay_ms(50);		// debounce
+				ENC_counter_AT = 0;
+			}
 		}
 		
 		if (out_hid_report_received_SIG)
@@ -81,6 +85,14 @@ int main(void)
 			LED_set(out_hid_report[1], out_hid_report[2], out_hid_report[3], out_hid_report[4], out_hid_report[5], out_hid_report[6]);
 			is_muted = out_hid_report[7];
 			hid_get_report();
+		}
+		
+		if (usb_suspended_AT)
+		{
+			LED_set(0, 0, 0, 0, 0, 0);
+			while (usb_suspended_AT)
+				sleep_cpu();
+			LED_set(out_hid_report[1], out_hid_report[2], out_hid_report[3], out_hid_report[4], out_hid_report[5], out_hid_report[6]);
 		}
 	}
 }
