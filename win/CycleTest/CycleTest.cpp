@@ -7,11 +7,11 @@
 #include <functional>
 
 #include <Windows.h>
+#include <winuser.h>
 #include <mmdeviceapi.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <endpointvolume.h>
 #include <shellapi.h>
-#include <functiondiscoverykeys_devpkey.h>
 
 #include <hidsdi.h>
 #include <setupapi.h>
@@ -40,6 +40,7 @@ struct AudioDeviceInfo {
 };
 
 void RebindAudioDevice(const std::wstring& deviceId = L"");
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 
 void CycleAudioDevice() {
@@ -123,67 +124,6 @@ void CycleAudioDevice() {
     }
     CoUninitialize();
 }
-
-// Window procedure to handle context menu events from the system tray icon
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    switch (msg) {
-    case WM_TRAYICON:
-        // Right-click on tray icon
-        if (lParam == WM_RBUTTONUP || lParam == WM_CONTEXTMENU) {
-            POINT pt;
-            GetCursorPos(&pt);
-
-            HMENU hMenu = CreatePopupMenu();
-            AppendMenu(hMenu, MF_STRING, ID_TRAY_EXIT, L"Exit");
-
-            // Required so clicking away from the menu closes it
-            SetForegroundWindow(hwnd);
-
-            TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
-            DestroyMenu(hMenu);
-        }
-        break;
-
-    case WM_COMMAND:
-        // Clicked "Exit" in the context menu
-        if (LOWORD(wParam) == ID_TRAY_EXIT) {
-            DestroyWindow(hwnd);
-        }
-        break;
-
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        break;
-
-    case WM_AUDIO_DEVICE_CHANGED: {
-            wchar_t* pDeviceId = reinterpret_cast<wchar_t*>(lParam);
-            std::wstring deviceIdStr = pDeviceId ? pDeviceId : L"";
-            if (pDeviceId) {
-                free(pDeviceId); // Free allocated memory from _wcsdup
-            }
-
-            std::thread([deviceIdStr]() {
-                CoInitializeEx(NULL, COINIT_MULTITHREADED);
-                RebindAudioDevice(deviceIdStr);
-                CoUninitialize();
-                }).detach();
-            break;
-        }
-
-    case WM_CYCLE_AUDIO:
-        std::thread([]() {
-            CoInitializeEx(NULL, COINIT_MULTITHREADED);
-            CycleAudioDevice();
-            CoUninitialize();
-        }).detach();
-        break;
-
-    default:
-        return DefWindowProc(hwnd, msg, wParam, lParam);
-    }
-    return 0;
-}
-
 
 AudioDeviceInfo GetAudioDeviceInfo(IMMDevice* pDevice) {
     AudioDeviceInfo info;
@@ -567,6 +507,28 @@ public:
         }
     }
 
+    void ForceRefresh() {
+        std::lock_guard<std::mutex> lock(_hidMutex);
+
+        // 1. Drop stale handles from before sleep
+        DisconnectHid();
+
+        // 2. Clear report cache so the next send isn't skipped as a duplicate
+        memset(_lastReport, 0, sizeof(_lastReport));
+
+        // 3. Re-open connection and push current state
+        if (EnsureConnected()) {
+            if (_pVolume) {
+                float vol = 0.0f;
+                BOOL mute = FALSE;
+                if (SUCCEEDED(_pVolume->GetMasterVolumeLevelScalar(&vol)) &&
+                    SUCCEEDED(_pVolume->GetMute(&mute))) {
+                    QueueVolumeUpdate(vol, mute);
+                }
+            }
+        }
+    }
+
     // COM Callbacks
     ULONG STDMETHODCALLTYPE AddRef() { return InterlockedIncrement(&_cRef); }
     ULONG STDMETHODCALLTYPE Release() {
@@ -703,6 +665,80 @@ public:
     HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR pwstrDeviceId, DWORD dwNewState) { return S_OK; }
     HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR pwstrDeviceId, const PROPERTYKEY key) { return S_OK; }
 };
+
+// Window procedure to handle context menu events from the system tray icon
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_TRAYICON:
+        // Right-click on tray icon
+        if (lParam == WM_RBUTTONUP || lParam == WM_CONTEXTMENU) {
+            POINT pt;
+            GetCursorPos(&pt);
+
+            HMENU hMenu = CreatePopupMenu();
+            AppendMenu(hMenu, MF_STRING, ID_TRAY_EXIT, L"Exit");
+
+            // Required so clicking away from the menu closes it
+            SetForegroundWindow(hwnd);
+
+            TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
+            DestroyMenu(hMenu);
+        }
+        break;
+
+    case WM_COMMAND:
+        // Clicked "Exit" in the context menu
+        if (LOWORD(wParam) == ID_TRAY_EXIT) {
+            DestroyWindow(hwnd);
+        }
+        break;
+
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+
+    case WM_AUDIO_DEVICE_CHANGED: {
+        wchar_t* pDeviceId = reinterpret_cast<wchar_t*>(lParam);
+        std::wstring deviceIdStr = pDeviceId ? pDeviceId : L"";
+        if (pDeviceId) {
+            free(pDeviceId); // Free allocated memory from _wcsdup
+        }
+
+        std::thread([deviceIdStr]() {
+            CoInitializeEx(NULL, COINIT_MULTITHREADED);
+            RebindAudioDevice(deviceIdStr);
+            CoUninitialize();
+            }).detach();
+        break;
+    }
+
+    case WM_CYCLE_AUDIO:
+        std::thread([]() {
+            CoInitializeEx(NULL, COINIT_MULTITHREADED);
+            CycleAudioDevice();
+            CoUninitialize();
+            }).detach();
+        break;
+
+    case WM_POWERBROADCAST:
+        // System is resuming from sleep or hibernate
+        if (wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND) {
+            std::thread([]() {
+                // Allow 1 second for the USB bus and HID driver to re-enumerate
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+                if (g_pVolumeCallback) {
+                    g_pVolumeCallback->ForceRefresh();
+                }
+                }).detach();
+        }
+        break;
+
+    default:
+        return DefWindowProc(hwnd, msg, wParam, lParam);
+    }
+    return 0;
+}
 
 int main()
 {
