@@ -92,7 +92,6 @@ int main(void)
 			LED_set(0, 0, 0, 0, 0, 0);
 			while (usb_suspended_AT)
 				sleep_cpu();
-			LED_set(out_hid_report[1], out_hid_report[2], out_hid_report[3], out_hid_report[4], out_hid_report[5], out_hid_report[6]);
 		}
 	}
 }
